@@ -109,6 +109,7 @@ class DRNSeg(nn.Module):
     def forward(self, x):
         x = self.base(x)
         x = self.seg(x)
+        print(x.shape,'shape of x')
         y = self.up(x)
         return self.softmax(y), x
 
