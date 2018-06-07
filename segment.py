@@ -31,6 +31,8 @@ try:
 except ImportError:
     pass
 
+from padding import calculate_input_size
+
 FORMAT = "[%(asctime)-15s %(filename)s:%(lineno)d %(funcName)s] %(message)s"
 logging.basicConfig(format=FORMAT)
 logger = logging.getLogger(__name__)
@@ -80,10 +82,10 @@ def fill_up_weights(up):
 
 class DRNSeg(nn.Module):
     def __init__(self, model_name, classes, pretrained_model=None,
-                 pretrained=True, use_torch_up=False):
+                 pretrained=True, use_torch_up=False, pad_input=False):
         super(DRNSeg, self).__init__()
         model = drn.__dict__.get(model_name)(
-            pretrained=pretrained, num_classes=1000)
+            pretrained=pretrained, num_classes=1000, pad_input = pad_input)
         pmodel = nn.DataParallel(model)
         if pretrained_model is not None:
             pmodel.load_state_dict(pretrained_model)
@@ -109,7 +111,6 @@ class DRNSeg(nn.Module):
     def forward(self, x):
         x = self.base(x)
         x = self.seg(x)
-        print(x.shape,'shape of x')
         y = self.up(x)
         return self.softmax(y), x
 
@@ -345,7 +346,7 @@ def train_seg(args):
         print(k, ':', v)
 
     single_model = DRNSeg(args.arch, args.classes, None,
-                          pretrained=True)
+                          pretrained=True, pad_input= args.pad_input)
     if args.pretrained:
         single_model.load_state_dict(torch.load(args.pretrained))
     model = torch.nn.DataParallel(single_model).cuda()
@@ -359,10 +360,19 @@ def train_seg(args):
     normalize = transforms.Normalize(mean=info['mean'],
                                      std=info['std'])
     t = []
+
+    if args.pad_input:
+        input_size = calculate_input_size(single_model, (crop_size, crop_size))
+        t.extend([
+            transforms.Pad((input_size[0] - crop_size)/2, -1),
+        ])
+        crop_size = input_size
+
     if args.random_rotate > 0:
         t.append(transforms.RandomRotate(args.random_rotate))
     if args.random_scale > 0:
         t.append(transforms.RandomScale(args.random_scale))
+
     t.extend([transforms.RandomCrop(crop_size),
               transforms.RandomHorizontalFlip(),
               transforms.ToTensor(),
@@ -688,6 +698,7 @@ def parse_args():
                              'It is the same with --data-dir if not set.')
     parser.add_argument('-c', '--classes', default=0, type=int)
     parser.add_argument('-s', '--crop-size', default=0, type=int)
+    parser.add_argument('-p', '--pad-input', default=False, type=bool)
     parser.add_argument('--step', type=int, default=200)
     parser.add_argument('--arch')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',

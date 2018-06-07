@@ -1,20 +1,21 @@
 import torch.nn
 import torch
-from segment import DRNSeg
+from segment import *
 from drn import BasicBlock
+import data_transforms
 
-def calculate_padding(model, target_output=(20,20)):
+def calculate_input_size(model, target_output=(20,20)):
 
     params = []
     for c in model.children():
         helper(c, params)
 
-    output_size = ()
+    in_size = ()
     for o in target_output:
-        output_size += (o,)
+        in_size += (o,)
     for p in reversed(params):
-        output_size = input_size(output_size, p[0], p[1], p[2])
-    return output_size
+        in_size = input_size(in_size, p[0], p[1], p[2])
+    return in_size
 
 def helper(layer, params):
     if isinstance(layer, torch.nn.Conv2d):
@@ -26,7 +27,9 @@ def helper(layer, params):
     elif isinstance(layer, BasicBlock):
         helper(layer.conv1, params)
         helper(layer.conv2, params)
-        layer.residual = False
+        if layer.residual:
+            pass
+        # layer.residual = False
 
 def input_size(output_size ,kernel, dilation, stride):
     input = ()
@@ -37,15 +40,16 @@ def input_size(output_size ,kernel, dilation, stride):
 def main():
     model = DRNSeg('drn_d_22', 11)
     target_output = (160, 160)
-    input_size = calculate_padding(model)
+    input_size = calculate_input_size(model)
     print(input_size, 'calculated input shape')
 
     input = torch.randn(4, 3, input_size[0], input_size[1])
-    input_var = torch.autograd.Variable(input)
-    output = model(input_var)[0]
-    print(output.shape,'output shape') #torch.Size([4, 11, 640, 480])
-    print(target_output, 'target output')
-    assert output.shape[-2:] == target_output
+    # input_var = torch.autograd.Variable(input)
+    # output = model(input_var)[0]
+    # print(output.shape,'output shape') #torch.Size([4, 11, 640, 480])
+    # print(target_output, 'target output')
+    # assert output.shape[-2:] == target_output
+    print(data_transforms.center_crop(input, 2,2).size())
 
 if __name__ == "__main__":
     main()

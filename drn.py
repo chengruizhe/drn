@@ -3,7 +3,7 @@ import pdb
 import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
-
+import data_transforms as transforms
 BatchNorm = nn.BatchNorm2d
 
 
@@ -33,7 +33,7 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, downsample=None,
-                 dilation=(1, 1), residual=True):
+                 dilation=(1, 1), residual=True, pad_input = False):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride,
                              padding=dilation[0], dilation=dilation[0])
@@ -45,6 +45,7 @@ class BasicBlock(nn.Module):
         self.downsample = downsample
         self.stride = stride
         self.residual = residual
+        self.pad_input = pad_input
 
     def forward(self, x):
         residual = x
@@ -59,6 +60,9 @@ class BasicBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
         if self.residual:
+            if self.pad_input:
+                new_size = list(out.size)
+                residual = transforms.center_crop(residual, new_size[2], new_size[3])
             out += residual
         out = self.relu(out)
 
@@ -110,7 +114,7 @@ class DRN(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000,
                  channels=(16, 32, 64, 128, 256, 512, 512, 512),
-                 out_map=False, out_middle=False, pool_size=28, arch='D'):
+                 out_map=False, out_middle=False, pool_size=28, arch='D', pad_input = False):
         super(DRN, self).__init__()
         self.inplanes = channels[0]
         self.out_map = out_map
@@ -141,21 +145,21 @@ class DRN(nn.Module):
             self.layer2 = self._make_conv_layers(
                 channels[1], layers[1], stride=2)
 
-        self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2)
-        self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2)
+        self.layer3 = self._make_layer(block, channels[2], layers[2], stride=2, pad_input=pad_input)
+        self.layer4 = self._make_layer(block, channels[3], layers[3], stride=2,pad_input=pad_input)
         self.layer5 = self._make_layer(block, channels[4], layers[4],
-                                       dilation=2, new_level=False)
+                                       dilation=2, new_level=False,pad_input=pad_input)
         self.layer6 = None if layers[5] == 0 else \
             self._make_layer(block, channels[5], layers[5], dilation=4,
-                             new_level=False)
+                             new_level=False, pad_input=pad_input)
 
         if arch == 'C':
             self.layer7 = None if layers[6] == 0 else \
                 self._make_layer(BasicBlock, channels[6], layers[6], dilation=2,
-                                 new_level=False, residual=False)
+                                 new_level=False, residual=False, pad_input=pad_input)
             self.layer8 = None if layers[7] == 0 else \
                 self._make_layer(BasicBlock, channels[7], layers[7], dilation=1,
-                                 new_level=False, residual=False)
+                                 new_level=False, residual=False, pad_input=pad_input)
         elif arch == 'D':
             self.layer7 = None if layers[6] == 0 else \
                 self._make_conv_layers(channels[6], layers[6], dilation=2)
@@ -175,7 +179,7 @@ class DRN(nn.Module):
                 m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
-                    new_level=True, residual=True):
+                    new_level=True, residual=True, pad_input=False):
         assert dilation == 1 or dilation % 2 == 0
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
@@ -190,11 +194,11 @@ class DRN(nn.Module):
             self.inplanes, planes, stride, downsample,
             dilation=(1, 1) if dilation == 1 else (
                 dilation // 2 if new_level else dilation, dilation),
-            residual=residual))
+            residual=residual, pad_input= pad_input))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, residual=residual,
-                                dilation=(dilation, dilation)))
+                                dilation=(dilation, dilation), pad_input=pad_input))
 
         return nn.Sequential(*layers)
 
